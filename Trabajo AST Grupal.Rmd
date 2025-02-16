@@ -1,0 +1,577 @@
+
+---
+title: "Análisis Completo de la Serie Temporal del número de afiliados a la Seguridad Social"
+author: "Gonzalo Jaén, Jovan Pomar y Juan Ignacio Sampere"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true         
+    toc_depth: 4      
+    toc_float: true
+    theme: flatly
+    highlight: tango
+---
+
+# Introducción
+
+Siendo jóvenes adultos a punto de acabar nuestra carrera, ya nos estamos adentrando al mundo laboral. De hecho, hace menos de un año que cada uno de nosotros se ha tenido que inscribir a la Seguridad Social para realizar nuestras prácticas de empresa. Así pues la serie temporal del número de afiliados a la Seguridad Social nos ha cautivado por ser algo que nos atañe. 
+
+En este RMD nos proponemos dar el código y algunas observaciones en los que hemos basado nuestro trabajo del análisis de esta serie temporal. Para mayor claridad y precisión tanto sobre el análisis como sobre el contexto económico-histórico véase el archivo PDF entregado.
+
+---
+
+# Parte 1: Lectura de Datos
+
+Se cargan los datos de afiliados a la seguridad social desde un archivo externo. Estos se transforman en un objeto de tipo `ts` para facilitar el análisis temporal.
+
+```{r lectura-datos}
+# Lectura de los datos
+data <- ts(read.table("afiliados.dat", header=FALSE) / 1000000, start = 1982, freq = 12)
+serie <- window(data, start = 2009, end = c(2018, 12))
+```
+
+---
+
+# Parte 2: Visualización de la Serie Temporal
+
+El siguiente gráfico muestra la evolución de los afiliados a la seguridad social desde 2009 hasta finales de 2018.
+
+```{r plot-serie}
+# Plot de la serie
+plot(serie, main = "Afiliados a la Seguridad Social", xlab = "Año", ylab = "Número (en millones de personas)")
+abline(v = 1990:2020, col = 4, lty = 3)
+m <- mean(serie)
+abline(h = m, lty = 3, col = 2)
+```
+
+**Interpretación:**  <br>
+El gráfico indica la evolución mensual del número de afiliados (en millones de personas). Las líneas verticales marcan los años principales, mientras que la línea horizontal roja representa el valor promedio de afiliados. Vemos que tiene tendencia y ciertos picos y valles que se repiten cada año.
+
+---
+
+# Parte 3: Estadísticas Básicas de la Serie
+
+Se calcula información descriptiva básica como la longitud, el inicio y fin de la serie, y la frecuencia de las observaciones.
+
+```{r stats-serie}
+# Características de la serie
+serie
+length(serie)
+start(serie)
+end(serie)
+frequency(serie)
+```
+
+**Interpretación:**  <br>
+Estos datos confirman la estructura temporal de la serie. La frecuencia mensual implica que cada año tiene 12 puntos de observación.
+
+---
+
+# Parte 4: Análisis Adicional
+
+```{r additional-code, echo=TRUE}
+summary(serie)
+```
+
+
+## 4.1 Varianza
+
+```{r}
+boxplot(serie)
+monthplot(serie)
+lag.plot(serie)
+boxplot(serie~floor(time(serie)))
+```
+
+**Observaciones:** <br>
+Con el boxplot y el summary, los valores oscilan entre 16.0 y 19.0, con la mayoría concentrados cerca de la mediana (dentro del rango intercuartílico). Esto indica que la variabilidad de los datos es estable y no extrema. <br>
+En el monthplot por años vemos que los meses de Mayo-Junio-Julio tienen mayor media que los otros meses. <br>
+El boxplot por meses muestra que los datos de 2009-2013 tienen varianza no constante mientras que de 2014-2018 la varianza sí que parece constante.Vemos también que no hay valores atípicos visibles. 
+
+## 4.2 Tendencia
+
+Usamos el filtro centrado de rango 2k compensado en los extremos para aproximar la tendencia.
+
+```{r}
+k = 6 #(Orden 2*k=freq)
+trend=filter(serie, c(1/(4*k),rep(1/(2*k),2*k-1),1/(4*k)), sides=2)
+plot(serie, main = "Afiliados con su tendencia aproximada", xlab = "Año", ylab = "Número (en millones de personas)")
+lines(trend, col = 2, lwd = 2)
+```
+
+**Observaciones:** <br>
+Al suavizar la serie, vemos que la tendencia es decreciente de 2009-2013 y linealmente creciente de 2014-2018.
+
+## 4.3 Estacionalidad aditiva
+
+```{r}
+plot(serie-trend, main = "Serie sin tendencia")
+abline(h = 0)
+
+seas = apply(matrix(serie-trend,nrow=2*k), 1, mean, na.rm=T)
+plot(seas, type = "h", lwd = 4, main = "Índices estacionales", xlab = "Año")
+lines(seas, col = 2)
+abline(h = 0)
+```
+
+**Observaciones:** <br>
+Los índices estacionales varían entre -0.2 y 0.15 que representaría aproximadamente un 34% del rango intercuartílico y un 12% del rango de la serie. <br>
+Parece haber estacionalidad pero no tenemos muy claro si es aditiva o multiplicativa por culpa de la heterocedastividad entre 2009 y 2013.
+
+## 4.4 Componente de error (o ruido)
+
+```{r}
+plot(serie-trend-seas, main = "Componente de ruido de la serie", xlab = "Año")
+abline(h = 0)
+
+plot(decompose(serie))
+```
+
+**Observaciones:** <br>
+Es una serie con error aditivo. <br>
+Tiene tendencia (no constante). <br>
+Tiene estacionalidad aditiva o mutiplicativa (lo veremos con los filtros a aplicar y sus errores). <br>
+Esta serie se clasificaría como una de tipo AAA (tipo 4) o AAM (tipo 6), en siglas ETS.
+
+**Interpretación:** <br>
+Debemos separar la serie en dos trozos: <br>
+-2009 a 2013: su heterocedasticidad y tendencia decreciente son las consecuencias de la crisis económica de 2008, puestos de trabajos inestables que desaparecen <br>
+-2014 a 2018: homocedasticidad y tendencia lineal creciente son indicadores de una recuperación económica positiva y estable. <br>
+Además los picos y valles de los índices estacionales corresponden con las mayores y menores temporadas de contratación.
+
+# Parte 5: Ajustes y predicciones 
+
+A continuación para aplicar los filtros supondremos que la serie puede ser o AAN (tipo 2) o AAA (tipo 4) o AAM (tipo 6). <br>
+Definimos las funciones que permitirán calcular los errores de los filtros de ajuste en nuestra serie.
+
+```{r}
+mse2 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma  = F)
+  mean((serie-fitted(h)[,1])^2)
+}
+rmse2 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = F)
+  sqrt(mean((serie-fitted(h)[,1])^2))
+}
+mae2 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = F)
+  mean(abs(serie-fitted(h)[,1]))
+}
+
+mse4 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3])
+  mean((serie-fitted(h)[,1])^2)
+}
+rmse4 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3])
+  sqrt(mean((serie-fitted(h)[,1])^2))
+}
+mae4 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3])
+  mean(abs(serie-fitted(h)[,1]))
+}
+
+mse6 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  mean((serie-fitted(h)[,1])^2)
+}
+rmse6 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  sqrt(mean((serie-fitted(h)[,1])^2))
+}
+mae6 <- function(par){
+  h <- HoltWinters(serie, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  mean(abs(serie-fitted(h)[,1]))
+}
+```
+
+## 5.1 Suponiendo que es AAN (a mano)
+
+```{r}
+par = c(0.5,0.5)
+sol <- optim(par, mse2, method = "L-BFGS-B", lower = c(1e-4,1e-4), upper = c(0.9999,0.9999))
+hw21 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = F)
+phw21 <- predict(hw21,24)
+ts.plot(serie, phw21, hw21$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(2)AAN MSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, rmse2, method = "L-BFGS-B", lower = c(1e-4,1e-4), upper = c(0.9999,0.9999))
+hw22 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = F)
+phw22 <- predict(hw22,24)
+ts.plot(serie, phw22, hw22$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(2)AAN RMSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, mae2, method = "L-BFGS-B", lower = c(1e-4,1e-4), upper = c(0.9999,0.9999))
+hw23 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = F)
+phw23 <- predict(hw23,24)
+ts.plot(serie, phw23, hw23$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(2)AAN MAE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+## 5.2 Suponiendo que es AAA (a mano)
+
+```{r}
+par = c(0.5,0.5,0.5)
+sol <- optim(par, mse4, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw41 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+phw41 <- predict(hw41,24)
+ts.plot(serie, phw41, hw41$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(4)AAA MSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, rmse4, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw42 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+phw42 <- predict(hw42,24)
+ts.plot(serie, phw42, hw42$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(4)AAA RMSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, mae4, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw43 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+phw43 <- predict(hw43,24)
+ts.plot(serie, phw43, hw43$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(4)AAA MAE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+## 5.3 Suponiendo que es AAM (a mano)
+
+```{r}
+par = c(0.5,0.5,0.5)
+sol <- optim(par, mse6, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw61 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3], seasonal = "m")
+phw61 <- predict(hw61,24)
+ts.plot(serie, phw61, hw61$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(6)AAM MSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, rmse6, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw62 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3], seasonal = "m")
+phw62 <- predict(hw62,24)
+ts.plot(serie, phw62, hw62$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(6)AAM RMSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1,  bty = "y")
+
+sol <- optim(par, mae6, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+hw63 <- HoltWinters(serie, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3],seasonal = "m")
+phw63 <- predict(hw63,24)
+ts.plot(serie, phw63, hw63$fitted[,1], col = c(1,2,3), lwd = c(1,2), main = paste0("(6)AAM MAE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+## 5.4 Procedimientos automatizados con las predicciones
+
+```{r}
+(h2 <- HoltWinters(serie, alpha = NULL, beta = NULL, gamma = FALSE, seasonal = "additive"))
+pred2=predict(h2,24)
+ts.plot(serie,fitted(h2)[,1],pred2,col=c(1,3,2),lwd=c(1,2), main = "Filtro Holt AAN")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")                     
+
+(h4 <- HoltWinters(serie, alpha = NULL, beta = NULL, gamma = NULL, seasonal = "additive"))
+pred4 = predict(h4,24)
+ts.plot(serie, fitted(h4)[,1], pred4, col = c(1,3,2), lwd = c(1,2), main = "Filtro Holt Winters AAA")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+(h6 <- HoltWinters(serie, alpha = NULL, beta = NULL, gamma = NULL, seasonal = "multiplicative"))
+pred6 = predict(h6,24)
+ts.plot(serie, fitted(h6)[,1], pred6, col = c(1,3,2), lwd = c(1,2), main = "Filtro Holt Winters AAM")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+```{r}
+summary(pred2-pred4)
+summary(pred2-pred6)
+summary(pred4-pred6)
+```
+
+**Interpretación:** <br>
+Nuestra suposición de presencia de estacionalidad ha sido confirmada. <br>
+Observando los diferentes errores claramente debemos aplicar o bien el Holt-Winters de tipo 4 o 6. <br>
+Como la varianza no es constante en toda la serie y para ambos filtros debemos estimar el mismo número de parámetros nos quedaremos con el filtro de Holt-Winters para las series con estacionalidad multiplicativa.
+
+```{r}
+filtro <- h6
+prediction <- pred6
+```
+
+# Parte 6: Partición de la serie temporal en etapas
+
+Como hemos visto anteriormente que hay homocedasticidad en los últimos cinco años decidimos realizar un estudio de la serie partida en dos etapas: de 2009-2013 y de 2014-2018. <br>Queremos ver cómo afectaría a las predicciones y a la clasificación de las sub-series.
+
+```{r}
+serie1 <- window(data, start = 2009, end = c(2013, 12))
+serie2 <- window(data, start = 2014, end = c(2018, 12))
+```
+
+## 6.1 Descriptivas
+
+```{r}
+x_range <- range(time(serie1), time(serie2))
+y_range <- range(c(serie1, serie2), na.rm=TRUE)
+
+plot(serie1, type = "l", col = "blue", xlab = "Año", ylab = "Número (en millones de personas)", main = "Evolución de Afiliados en Dos Periodos", xlim = x_range, ylim = y_range)
+lines(serie2, col = "red")
+legend("topleft", legend = c("Serie 2009-2013","Serie 2014-2018"), col = c("blue", "red"), lty = 1)
+
+serie1
+length(serie1) 
+start(serie1) 
+end(serie1)
+frequency(serie1)
+summary(serie1)
+
+serie2
+length(serie2) 
+start(serie2) 
+end(serie2)
+frequency(serie2)
+summary(serie2)
+```
+
+## 6.2 Clasificación serie1
+
+Procedemos de la misma manera como con la serie total.
+
+```{r}
+boxplot(serie1)
+monthplot(serie1)
+boxplot(serie1~floor(time(serie1)))
+
+k = 6 #(Orden 2*k=freq)
+trend1 = filter(serie1, c(1/(4*k),rep(1/(2*k),2*k-1),1/(4*k)), sides = 2)
+plot(serie1, main = "Serie1 con su tendencia aproximada", xlab = "Año")
+lines(trend1, col = 2, lwd = 2)
+
+plot(serie1-trend1, main = "Serie1 sin tendencia", xlab = "Año")
+abline(h = 0)
+
+seas1 = apply(matrix(serie1-trend1,nrow=2*k), 1, mean, na.rm=T)
+plot(seas1, type = "h", lwd = 4, main="Índices estacionales de la Serie1")
+lines(seas1, col = 2)
+abline(h = 0)
+plot(serie1-trend1-seas1, main = "Componente de ruido de la Serie1", xlab = "Año")
+abline(h = 0)
+
+plot(decompose(serie1))
+```
+
+**Observaciones:** <br>
+Hay tendencia decreciente y estacionalidad multiplicativa por la heterocedasticidad. <br>
+Es una serie de tipo 6: AAM.
+
+**Interpretación:** <br>
+Debido a la crisis económica de 2008, el número de afiliados fue decreciendo en España hasta 2013. <br>
+La serie1 representa las consecuencias recesivas de esta crisis. <br>
+Hacia finales de 2013-2014 se comienzan a observar inicios de recuperación económica.
+
+##  6.3 Clasificación serie2
+
+```{r}
+boxplot(serie2)
+monthplot(serie2)
+boxplot(serie2~floor(time(serie2)))
+
+k = 6 #(Orden 2*k=freq)
+trend2 = filter(serie2, c(1/(4*k),rep(1/(2*k),2*k-1),1/(4*k)), sides = 2)
+plot(serie2, main = "Serie2 con tendencia aproximada", xlab = "Año")
+lines(trend2, col = 2, lwd = 2)
+
+plot(serie2-trend2, main = "Serie2 sin tendencia", xlab = "Año")
+abline(h =  0)
+
+seas2 = apply(matrix(serie2-trend2,nrow=2*k), 1, mean, na.rm=T)
+plot(seas2, type = "h", lwd = 4, main  ="Índices estacionales de la Serie2")
+lines(seas2, col = 2)
+abline(h = 0)
+plot(serie2-trend2-seas2, main = "Componente de ruido de la Serie2", xlab = "Año")
+abline(h = 0)
+
+plot(decompose(serie2))
+```
+
+**Observaciones:** <br>
+Hay tendencia lineal creciente y estacionalidad aditiva por la homocedasticidad. <br>
+Es una serie de tipo 4: AAA.
+
+**Interpretación:** <br>
+La recuperación positiva económica da lugar a un crecimiento constante del número de afiliados a la seguridad social en España. <br>
+
+## 6.4 Predicciones con la serie2
+
+Volvemos a definir las funciones necesareas.
+
+```{r}
+mse4bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3])
+  mean((serie2-fitted(h)[,1])^2)
+}
+rmse4bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3])
+  sqrt(mean((serie2-fitted(h)[,1])^2))
+}
+mae4bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3])
+  mean(abs(serie2-fitted(h)[,1]))
+}
+
+mse6bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  mean((serie2-fitted(h)[,1])^2)
+}
+rmse6bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  sqrt(mean((serie2-fitted(h)[,1])^2))
+}
+mae6bis <- function(par){
+  h <- HoltWinters(serie2, alpha = par[1], beta = par[2], gamma = par[3], seasonal = "multip")
+  mean(abs(serie2-fitted(h)[,1]))
+}
+```
+
+### 6.4.1 Suponiendo que es AAA (a mano)
+
+```{r}
+par = c(0.5,0.5,0.5)
+sol <- optim(par, mse4bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h41 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+ph41 <- predict(h41,24)
+ts.plot(serie2, ph41, h41$fitted[,1], col = c(1,2,3), main = paste0("(4)AAA MSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,2,3), lty = 1, bty = "y")
+
+sol <- optim(par, rmse4bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h42 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+ph42 <- predict(h42,24)
+ts.plot(serie2, ph42, h42$fitted[,1], col = c(1,2,3), main = paste0("(4)AAA RMSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, mae4bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h43 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3])
+ph43 <- predict(h43,24)
+ts.plot(serie2, ph43, h43$fitted[,1], col = c(1,2,3), main = paste0("(4)AAA MAE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+### 6.4.2 Suponiendo que es AAM (a mano)
+
+```{r}
+par = c(0.5,0.5,0.5)
+sol <- optim(par, mse6bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h61 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3], seasonal = "m")
+ph61 <- predict(h61,24)
+ts.plot(serie2, ph61, h61$fitted[,1], col = c(1,2,3), main=paste0("(6)AAM MSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, rmse6bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h62 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3], seasonal = "m")
+ph62 <- predict(h62,24)
+ts.plot(serie2, ph62, h62$fitted[,1], col = c(1,2,3), main = paste0("(6)AAM RMSE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+sol <- optim(par, mae6bis, method = "L-BFGS-B", lower = c(1e-4,1e-4,1e-4), upper = c(0.9999,0.9999,0.9999))
+h63 <- HoltWinters(serie2, alpha = sol$par[1], beta = sol$par[2], gamma = sol$par[3], seasonal = "m")
+ph63 <- predict(h63,24)
+ts.plot(serie2, ph63, h63$fitted[,1], col = c(1,2,3), main=paste0("(6)AAM MAE=", round(sol$value,4)))
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+###  6.4.3 Automáticamente
+
+```{r}
+(h4bis <- HoltWinters(serie2, alpha = NULL, beta = NULL, gamma = NULL, seasonal = "additive"))
+pred4bis = predict(h4bis,24)
+ts.plot(serie2, fitted(h4bis)[,1], pred4bis, col = c(1,3,2), lwd = c(1,2), main = "Filtro Holt Winters AAA")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+(h6bis <- HoltWinters(serie2, alpha = NULL, beta = NULL, gamma = NULL, seasonal = "multiplicative"))
+pred6bis = predict(h6bis,24)
+ts.plot(serie2, fitted(h6bis)[,1], pred6bis, col = c(1,3,2), lwd = c(1,2), main = "Filtro Holt Winters AAM")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+
+summary(pred4bis-pred6bis)
+plot(pred4bis-pred6bis, main = "Diferencia de las predicciones", xlab = "Año")
+```
+
+**Interpretación:** <br>
+Observamos que ambos filtros son extremadamente parecidos pero dada la clara clasificación de la serie en cuestión escogemos el filtro Holt-Winters para series con estacionalidad aditiva.
+
+```{r}
+filtro_bis <- h4bis
+prediction_bis <- pred4bis
+```
+
+# Parte 7: Comparación de predicciones
+
+## 7.1 Serie entera y desde 2014
+
+```{r}
+summary(prediction-prediction_bis)
+plot(prediction-prediction_bis, main = "Diferencia de las predicciones definitivas", xlab = "Año")
+
+ts.plot(serie, prediction, prediction_bis, fitted(filtro)[,1],fitted(filtro_bis)[,1], col = c(1,2,3,4,5), lwd=c(1,2), main = "Serie con filtros y predicciones", xlab = "Año")
+legend("topleft", legend = c("Serie", "Prediction with entire serie", "Prediction with half serie", "Fitted serie", "Fitted half serie"), col = c(1,2,3,4,5), lty = 1, bty = "y")
+```
+
+**Observaciones:** <br>
+Observamos que hay cierta diferencia y que da valores más altos tomando la serie de 2014-2018. 
+Esto es lógico ya que la predicción de la serie1 no arrastra la tendencia decreciente de 2009-2013.
+Además, parece que la predicción hecha con la serie de 2014-2018 es igual a una traslación vertical positiva de la predicción con la serie total.
+
+## 7.2 Comparación predicciones con los dos siguientes años reales #
+
+Definimos una función del Mean Squared Error entre dos series.
+
+```{r}
+error <- function(serie1,serie2){
+  mean((serie1-serie2)^2)
+}
+```
+
+### 7.2.1 Primer año (2019)
+
+```{r}
+futuro <- window(data, start = 2019, end = c(2019,12))
+summary(futuro-prediction)
+plot(futuro-prediction, main = "Diferencia entre la predicción de la serie y los valores reales de 2019", xlab = "Año")
+
+summary(futuro-prediction_bis)
+plot(futuro-prediction_bis, main = "Diferencia entre la predicción de la serie2 y los valores reales de 2019", xlab = "Año")
+
+ts.plot(serie, prediction, prediction_bis, futuro, col = c(1,2,3,4), lwd = c(1,2), main = "Serie con predicciones", xlab = "Año")
+legend("topleft", legend = c("Serie", "Prediction with entire serie", "Prediction with half serie", "Real 2019 values"), col = c(1,2,3,4), lty = 1, bty = "y")
+
+error(futuro,prediction)
+error(futuro,prediction_bis)
+```
+
+**Observaciones:** <br>
+Con los errores, vemos que en este caso hubiese sido mejor considerar toda la serie en vez de a trozos.
+También ambas predicciones han fallado en los meses de Junio-Julio.
+
+### 7.2.2 Segundo año de predicciones (2020, con datos encontrados por la web)
+
+```{r}
+new_data <- c(19.041595,19.279415,18.445436,18.396362,18.584176,18.484270,18.673847,18.591306,18.843729,18.986284,18.974452,18.904852)
+extended_futuro <- ts(c(futuro,new_data), start = start(futuro), frequency = frequency(futuro))
+extended_futuro
+
+ts.plot(serie, prediction, prediction_bis, extended_futuro, col = c(1,2,3,4), lwd = c(1,2), main = "Serie con predicciones", xlab = "Año")
+legend("topleft", legend = c("Serie", "Prediction with entire serie", "Prediction with half serie", "Real 2019-2020 values"), col = c(1,2,3,4), lwd = 1, bty = "y")
+
+error(extended_futuro,prediction)
+error(extended_futuro,prediction_bis)
+```
+
+**Observaciones:** <br>
+En 2020 nuestras predicciones fallan completamente.
+Esto es debido a un fenómeno natural que no pudimos preveer, la pandemia del coronavirus.
+
+**Interpretación:** <br>
+Nuestras predicciones se basan en las observaciones pasadas y patrones repetivivos, no tienen en cuenta factores exógenos. Por ende, presentan limitaciones significativas para predecir eventos extraordinarios como crisis económicas o pandemias.
+
+---
+
+# Conclusión
+
+El análisis de la serie temporal de afiliados a la Seguridad Social en España (2009-2018) identifica dos etapas clave con dinámicas distintas. La primera, entre 2009 y 2013, refleja el impacto de la crisis económica, con una tendencia decreciente que alcanzó un mínimo histórico de 16.08 millones de afiliados. Este periodo se caracteriza por alta volatilidad y cambios abruptos en el empleo, reflejando la incertidumbre del mercado laboral. La primera subserie es una serie AAM. La segunda etapa, de 2014 a 2018, muestra una recuperación sostenida, con un crecimiento continuo hasta alcanzar un máximo de 18.97 millones de afiliados en 2018. Durante esta fase, se observa mayor estabilidad y normalización del mercado laboral, aunque con fluctuaciones estacionales más pronunciadas. La segunda subserie es una serie AAA. <br>
+
+La serie presenta estacionalidad aditiva consistente, con picos de afiliación en abril y julio, y descensos en diciembre y marzo, asociados a la temporalidad laboral en sectores como el turismo y la agricultura. La descomposición de la serie revela tres componentes clave: tendencia, estacionalidad y ruido, destacando cómo la recuperación económica intensifica las fluctuaciones estacionales. <br>
+
+Aunque los modelos predictivos basados en patrones históricos son efectivos bajo condiciones normales, no logran anticipar eventos extraordinarios como la pandemia de 2020. Esto enfatiza la necesidad de complementar las metodologías tradicionales con enfoques adaptativos o escenarios para manejar incertidumbres externas.
+
+---
+
