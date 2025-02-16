@@ -1,0 +1,1164 @@
+
+---
+title: "Modelización ARIMA con la Serie Temporal del número de entrada de Turistas en España"
+author: "Gonzalo Jaén, Jovan Pomar y Juan Ignacio Sampere"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true         
+    toc_depth: 4      
+    toc_float: true
+    theme: flatly
+    highlight: tango
+---
+
+# Introducción
+
+Siendo jóvenes estudiantes que comparten una pasión por su país y el viajar, hemos sentido cierta curiosidad sobre el número de entrada de Turistas en España. Bien sabemos que el turismo es el factor económico más influyente en España, ¿pero cómo ha evolucionado a lo largo de estos últimos años? Nos proponemos pues a estudiar dicha serie temporal desde 2009 a 2018 con las herramientas estadísticas adquiridas en la parte de procesos estocásticos de esta asignatura. <br> 
+
+En este RMD nos proponemos dar el código y algunas observaciones en los que hemos basado nuestro trabajo del análisis de esta serie temporal. Para mayor claridad y precisión tanto sobre el análisis como sobre el contexto económico-histórico véase el archivo PDF entregado.
+
+---
+
+# Parte 1: Lectura de Datos
+
+Se cargan los datos del número de entrada de Turistas en España desde un archivo externo. Estos se transforman en un objeto de tipo `ts` para facilitar el análisis temporal.
+
+```{r lectura-datos}
+# Lectura de los datos
+data <- ts(read.table("entradTur.dat")/1000000,start=2000,freq=12)
+serie <- window(data, start = 2009, end = c(2018, 12))
+```
+
+---
+
+# Parte 2: Visualización de la Serie Temporal
+
+El siguiente gráfico muestra la evolución de los afiliados a la seguridad social desde 2009 hasta finales de 2018.
+
+```{r plot-serie}
+# Plot de la serie
+plot(serie, main = "Entrada de Turistas en España", xlab = "Año", ylab = "Número (en millones de personas)")
+abline(v = 1990:2020, col = 4, lty = 3)
+m <- mean(serie)
+abline(h = m, lty = 3, col = 2)
+```
+
+**Interpretación**  <br>
+El gráfico indica la evolución mensual del número de entrada de turistas (en millones de personas). Las líneas verticales marcan los años principales, mientras que la línea horizontal roja representa el valor promedio de turistas. Vemos que tiene tendencia y ciertos picos y valles que se repiten cada año.
+
+---
+
+# Parte 3: Estadísticas Básicas de la Serie
+
+Se calcula información descriptiva básica como la longitud, el inicio y fin de la serie, y la frecuencia de las observaciones.
+
+```{r stats-serie}
+# Características de la serie
+serie
+length(serie)
+start(serie)
+end(serie)
+frequency(serie)
+```
+
+**Interpretación**  <br>
+Estos datos confirman la estructura temporal de la serie. La frecuencia mensual implica que cada año tiene 12 puntos de observación.
+
+---
+
+# Parte 4: Clasificación de la serie
+
+```{r additional-code, echo=TRUE}
+summary(serie)
+```
+
+
+## 4.1 Varianza
+
+```{r}
+boxplot(serie)
+monthplot(serie)
+lag.plot(serie)
+boxplot(serie~floor(time(serie)))
+m=apply(matrix(serie,ncol=12),2,mean)
+v=apply(matrix(serie,ncol=12),2,var)
+plot(v~m,main="Mean-Variance plot")
+abline(lm(v~m), col="red")
+```
+
+**Observaciones** <br>
+Con el boxplot y el summary, los valores oscilan entre 2.5 y 10.5, esta notable amplitud indica cierta variabilidad en los datos. <br>
+En el monthplot por años vemos que los meses de Julio-Agosto tienen mayor media que los otros meses. <br>
+Tanto en el boxplot por años como en el Mean-Var plot  muestra que la varianza de los datos no es constante: a mayor media mayor esperanza. 
+
+## 4.2 Descomposición aditiva
+
+```{r}
+plot(decompose(serie))
+```
+
+**Observaciones** <br>
+Es una serie con error aditivo. <br>
+Tiene tendencia (no constante). <br>
+Tiene estacionalidad por un claro patrón repetido cada 12 meses. <br>
+
+**Interpretación** <br>
+Su tendencia es linealmente creciente. <br>
+La estacionalidad es multiplicativa dada la heterocedasiticidad de los datos. <br>
+Esta serie se clasificaría como una de tipo AAM (tipo 6), en siglas ETS.
+
+---
+
+# Parte 5: Transformación de la serie
+
+Queremos obtener una serie estacionaria aplicandole ciertas transformaciones a la serie original.
+
+## 5.1 Aplicación logarítmica
+
+Dada que la varianza no es constante aplicamos el logaritmo a nuestra serie temporal.
+
+```{r}
+lnserie=log(serie)
+plot(lnserie,type="o")
+```
+
+```{r}
+boxplot(lnserie~floor(time(lnserie)))
+m=apply(matrix(lnserie,ncol=12),2,mean)
+v=apply(matrix(lnserie,ncol=12),2,var)
+plot(v~m,main="Mean-Variance plot")
+abline(lm(v~m), col="red")
+```
+
+**Observaciones** <br>
+La dependencia de la varianza en función de la media ha disminuído dado que la recta es casi paralela y los boxplots de tamaño similar. <br>
+Asumimos homocedasticidad.
+
+## 5.2 Estacionalidad
+
+Anteriormente ya hemos visto que hay un patrón repetitivo cada año. <br>
+Por ello aplicamos una diferenciación (D=1) de orden S=12.
+
+```{r}
+d12lnserie<-diff(lnserie,lag=12)
+plot(d12lnserie,main="d12lnserie")
+abline(h=mean(d12lnserie))
+```
+
+**Observaciones** <br>
+No vemos ningún patrón que se repita, hemos eliminado la componente de estacionalidad. <br>
+Nos presentamos ante el problema de que claramente la media no es constante.
+
+## 5.3 Media constante
+
+Aplicamos diferenciaciones regulares para remover las raíces unitarias.
+
+```{r}
+d1d12lnserie<-diff(d12lnserie)
+plot(d1d12lnserie,main="d1d12lnserie")
+abline(h=mean(d1d12lnserie))
+mean(d1d12lnserie)
+```
+
+**Observaciones** <br>
+Parece que con una diferenciación ya hemos llegado a obtener una media constante de 7.4e-04. <br>
+Verifiquémoslo mirando las varianzas de las series obtenidas tras cada diferenciación.
+
+```{r}
+var(lnserie)
+var(d12lnserie)
+var(d1d12lnserie)
+var(diff(d1d12lnserie))
+```
+
+**Observaciones** <br>
+La varianza va decreciendo tras cada diferenciación hasta llegar a la segunda diferenciación regular. <br>
+Concluímos que esta última no hace falta.
+
+## 5.4 ACF
+
+```{r}
+acf(d1d12lnserie,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+```
+
+**Observaciones** <br>
+La acf decae rápidamente hacia cero.
+
+**Interpretación** <br>
+Tras aplicar el logaritmo, una diferenciación de orden 12 y una diferenciación regular obtenemos al fin una serie estacionaria. <br>
+De momento D=1, S=12, d=1.
+
+---
+
+# Parte 6: Identificación de plausibles procesos estacionarios
+
+## 6.1 Interpretación de las (P)ACF
+
+Intentaremos dar varios modelos en función de las (P)ACF.
+
+```{r}
+par(mfrow=c(1,2))
+acf(d1d12lnserie,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,11)),lwd=2)
+pacf(d1d12lnserie,ylim=c(-1,1),lag.max=60,col=c(rep(1,11),2),lwd=2)
+par(mfrow=c(1,1))
+```
+
+**Observaciones** <br>
+Parte regular (en negro): $AR(1), MA(2)$. <br>
+Parte estacional (en rojo): $SAR(1), SMA(1), SMA(4)$.
+
+## 6.2 Modelos propuestos para la serie estacionaria $W_t$
+
+$W_t= (1-B) (1-B^{12})ln(X_t)$; en este caso $mean(W_t)=0$ <br>
+**Diferenciaciones aplicadas:** $d=1$ y $D=1$ con $S=12$.
+
+**Modelo 1.** $AR(1)SAR(1)_{12}$ para $W_t$: 
+
+\[
+(1 - \phi_1 B)(1 - \Phi_1 B^{12})W_t = Z_t; Z_t \sim N(0,\sigma^2_z)
+\]
+
+**Modelo 2.** $AR(1)SMA(1)_{12}$ para $W_t$: 
+
+\[
+(1 - \phi_1 B)W_t = (1 + \Theta_1 B^{12})Z_t; Z_t ~ N(0,\sigma^2_z)
+\]
+
+**Modelo 3.** $AR(1)SMA(4)_{12}$ para $W_t$:
+
+\[
+(1 - \phi_1 B)W_t = (1 + \Theta_1 B^{12} + \Theta_2 B^{24} + \Theta_3 B^{36} + \Theta_4 B^{48})Z_t; Z_t ~ N(0,\sigma^2_z)
+\]
+
+**Modelo 4.** $MA(2)SAR(1)_{12}$ para $W_t$:
+
+\[
+(1 - \Phi_1 B^{12})W_t = (1 + \theta_1 B + \theta_2 B^{2})Z_t; Z_t \sim N(0,\sigma^2_z)
+\]
+
+**Modelo 5.** $MA(2)SMA(1)_{12}$ para $W_t$:
+
+\[
+W_t = (1 + \theta_1 B + \theta_2 B^{2})(1 + \Theta_1 B^{12})Z_t; Z_t \sim N(0,\sigma^2_z)
+\]
+
+**Modelo 6.** $MA(2)SMA(4)_{12}$ para $W_t$:
+
+\[
+W_t = (1 + \theta_1 B + \theta_2 B^{2})(1 + \Theta_1 B^{12} + \Theta_2 B^{24} + \Theta_3 B^{36} + \Theta_4 B^{48})Z_t; Z_t \sim N(0,\sigma^2_z)
+\]
+
+## 6.3 Estimación de los modelos identificados
+
+Procederemos de la siguiente manera. <br>
+Estimamos el modelo con la serie estacionaria $W_t$ y miramos su intercepto. Si su intercepto no es significativo, que es equivalente a que el valor absoluto de su T-ratio sea inferior que 2, entonces haremos una nueva estimación del modelo usando la serie no estacionaria $ln(X_t)$. <br>
+También podría ocurrir que algún parámetro del modelo, a parte del intercepto, dé que no es significativo. En el caso de que corresponda al parámetro del mayor grado de alguno de los polinomios característicos, volveremos a estimarlo en un segundo modelo sin él (le bajaremos el grado al polinomio). <br>
+Al i-ésimo modelo con $W_t$ se llamará modiA y con $X_t$ modiB.
+
+### 6.3.1 Estimación Modelo 1
+
+**Ecuación** $AR(1)SAR(1)_{12}$ para $W_t$
+
+```{r}
+(mod1A=arima(d1d12lnserie, order=c(1,0,0),seasonal=list(order=c(1,0,0),period=12)))
+cat("Modelo 1A \nT-ratios:",round(mod1A$coef/sqrt(diag(mod1A$var.coef)),2))
+```
+
+```{r}
+(mod1B=arima(lnserie, order=c(1,1,0),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo 1B \nT-ratios:",round(mod1B$coef/sqrt(diag(mod1B$var.coef)),2))
+```
+
+### 6.3.2 Estimación Modelo 2
+
+**Ecuación** $AR(1)SMA(1)_{12}$ para $W_t$
+
+```{r}
+(mod2A=arima(d1d12lnserie, order=c(1,0,0),seasonal=list(order=c(0,0,1),period=12)))
+cat("Modelo 2A \nT-ratios:",round(mod2A$coef/sqrt(diag(mod2A$var.coef)),2))
+```
+```{r}
+(mod2B=arima(lnserie, order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo 2B \nT-ratios:",round(mod2B$coef/sqrt(diag(mod2B$var.coef)),2))
+```
+
+### 6.3.3 Estimación Modelo 3
+
+**Ecuación** $AR(1)SMA(4)_{12}$ para $W_t$
+
+```{r}
+(mod3A=arima(d1d12lnserie, order=c(1,0,0),seasonal=list(order=c(0,0,4),period=12)))
+cat("Modelo 3A \nT-ratios:",round(mod3A$coef/sqrt(diag(mod3A$var.coef)),2))
+```
+
+```{r}
+(mod3B=arima(lnserie, order=c(1,1,0),seasonal=list(order=c(0,1,4),period=12)))
+cat("Modelo 3B \nT-ratios:",round(mod3B$coef/sqrt(diag(mod3B$var.coef)),2))
+```
+
+### 6.3.4 Estimación Modelo 4
+
+**Ecuación** $MA(2)SAR(1)_{12}$ para $W_t$
+
+```{r}
+(mod4A=arima(d1d12lnserie, order=c(0,0,2),seasonal=list(order=c(1,0,0),period=12)))
+cat("Modelo 4A \nT-ratios:",round(mod4A$coef/sqrt(diag(mod4A$var.coef)),2))
+```
+
+```{r}
+(mod4B=arima(lnserie, order=c(0,1,1),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo 4B \nT-ratios:",round(mod4B$coef/sqrt(diag(mod4B$var.coef)),2))
+```
+
+### 6.3.5 Estimación Modelo 5
+
+**Ecuación** $MA(2)SMA(1)_{12}$ para $W_t$
+
+```{r}
+(mod5A=arima(d1d12lnserie, order=c(0,0,2),seasonal=list(order=c(0,0,1),period=12)))
+cat("Modelo 5A \nT-ratios:",round(mod5A$coef/sqrt(diag(mod5A$var.coef)),2))
+```
+
+```{r}
+(mod5B=arima(lnserie, order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo 5B \nT-ratios:",round(mod5B$coef/sqrt(diag(mod5B$var.coef)),2))
+```
+
+### 6.3.6 Estimación Modelo 6
+
+**Ecuación** $MA(2)SMA(4)_{12}$ para $W_t$
+
+```{r}
+(mod6A=arima(d1d12lnserie, order=c(0,0,2),seasonal=list(order=c(0,0,4),period=12)))
+cat("Modelo 6A \nT-ratios:",round(mod6A$coef/sqrt(diag(mod6A$var.coef)),2))
+```
+
+```{r}
+(mod6B=arima(lnserie, order=c(0,1,1),seasonal=list(order=c(0,1,4),period=12)))
+cat("Modelo 6B \nT-ratios:",round(mod6B$coef/sqrt(diag(mod6B$var.coef)),2))
+```
+
+**Interpretación** <br>
+Observamos que en todos los modelos hemos obtenido que el intercepto no era significativo y por ende los modelos B tienen menor AIC y mayor verosimilitud (se adaptan mejor a los datos). <br>
+Además en los modelos cuya parte regular era MA(2) nos daba que el coeficiente de segundo grado del polinomio tampoco era significativo y por ello hemos reducido su grado a un MA(1). <br>
+Sin embargo en los modelos cuya parte estacional es MA(4) los coeficientes de segundo y tercer grado no parecen significativos. Pero al no ser los coeficientes del grado máximo no hemos reducido el polinomio.
+
+---
+
+# Parte 7: Validación de los modelos
+
+De momento el que parece ser el mejor modelo según el AIC es el modelo 6B. <br>
+Cómo los B modelos son mejores que los A, realizaremos la validación sólo de éstos. <br>
+Para la validación usaremos la siguiente función.
+
+```{r}
+#################Validation#################################
+validation=function(model){
+ s=frequency(get(model$series))
+  resid=model$residuals
+  par(mfrow=c(2,2),mar=c(3,3,3,3))
+  #Residuals plot
+  plot(resid,main="Residuals")
+  abline(h=0)
+  abline(h=c(-3*sd(resid),3*sd(resid)),lty=3,col=4)
+  #Square Root of absolute values of residuals (Homocedasticity)
+  scatter.smooth(sqrt(abs(resid)),main="Square Root of Absolute residuals",
+                 lpars=list(col=2))
+  
+  #Normal plot of residuals
+  qqnorm(resid)
+  qqline(resid,col=2,lwd=2)
+  
+  ##Histogram of residuals with normal curve
+  hist(resid,breaks=20,freq=FALSE)
+  curve(dnorm(x,mean=mean(resid),sd=sd(resid)),col=2,add=T)
+  
+  
+  #ACF & PACF of residuals
+  par(mfrow=c(1,2))
+  acf(resid,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,s-1)),lwd=1)
+  pacf(resid,ylim=c(-1,1),lag.max=60,col=c(rep(1,s-1),2),lwd=1)
+  par(mfrow=c(1,1))
+  
+  #ACF & PACF of square residuals 
+  par(mfrow=c(1,2))
+  acf(resid^2,ylim=c(-1,1),lag.max=60,col=c(2,rep(1,s-1)),lwd=1)
+  pacf(resid^2,ylim=c(-1,1),lag.max=60,col=c(rep(1,s-1),2),lwd=1)
+  par(mfrow=c(1,1))
+  
+  #Ljung-Box p-values
+  par(mar=c(2,2,1,1))
+  tsdiag(model,gof.lag=7*s)
+  cat("\n--------------------------------------------------------------------\n")
+  print(model)
+  
+  #Stationary and Invertible
+  cat("\nModul of AR Characteristic polynomial Roots: ", 
+      Mod(polyroot(c(1,-model$model$phi))),"\n")
+  cat("\nModul of MA Characteristic polynomial Roots: ",
+      Mod(polyroot(c(1,model$model$theta))),"\n")
+  
+  #Model expressed as an MA infinity (psi-weights)
+  psis=ARMAtoMA(ar=model$model$phi,ma=model$model$theta,lag.max=36)
+  names(psis)=paste("psi",1:36)
+  cat("\nPsi-weights (MA(inf))\n")
+  cat("\n--------------------\n")
+  print(psis[1:20])
+#extra
+  plot(psis,type="h",main="Pesos Psis - MA infinito")
+
+  #Model expressed as an AR infinity (pi-weights)
+  pis=-ARMAtoMA(ar=-model$model$theta,ma=-model$model$phi,lag.max=36)
+  names(pis)=paste("pi",1:36)
+  cat("\nPi-weights (AR(inf))\n")
+  cat("\n--------------------\n")
+  print(pis[1:20])
+#extra
+  plot(pis,type="h",main="Pesos Pis - AR infinito")
+
+
+  ## Add here complementary tests (use with caution!)
+  ##---------------------------------------------------------
+  cat("\nNormality Tests\n")
+  cat("\n--------------------\n")
+  
+  ##Shapiro-Wilks Normality test
+  print(shapiro.test(resid(model)))
+  sw<-round(shapiro.test(resid(model))$p.value,4)
+  suppressMessages(require(nortest,quietly=TRUE,warn.conflicts=FALSE))
+  ##Anderson-Darling test
+  print(ad.test(resid(model)))
+  ad<-round(ad.test(resid(model))$p.value,4)
+  
+  suppressMessages(require(tseries,quietly=TRUE,warn.conflicts=FALSE))
+  ##Jarque-Bera test
+  print(jarque.bera.test(resid(model)))
+  jb<-round(jarque.bera.test(resid(model))$p.value,4)
+  
+  cat("\nHomoscedasticity Test\n")
+  cat("\n--------------------\n")
+  suppressMessages(require(lmtest,quietly=TRUE,warn.conflicts=FALSE))
+  ##Breusch-Pagan test
+  obs=get(model$series)
+  print(bptest(resid(model)~I(obs-resid(model))))
+  bp<-round(bptest(resid(model)~I(obs-resid(model)))$p.value,4)
+  
+  cat("\nIndependence Tests")
+  cat("\n--------------------\n")
+  ##Durbin-Watson test
+  print(dwtest(resid(model)~I(1:length(resid(model)))))
+  dw<-dwtest(resid(model)~I(1:length(resid(model))))$p.value
+  
+  ##Ljung-Box test
+  cat("\nLjung-Box test\n")
+  print(t(apply(matrix(c(1:4,(1:4)*s)),1,function(el) {
+    te=Box.test(resid(model),type="Ljung-Box",lag=el)
+    c(lag=(te$parameter),statistic=te$statistic[[1]],p.value=te$p.value)})))
+  ##************End of complementary tests******************************************
+  lj<-round(t(apply(matrix(c(1:4,(1:4)*s)),1,function(el) {
+    te=Box.test(resid(model),type="Ljung-Box",lag=el)
+    c(lag=(te$parameter),statistic=te$statistic[[1]],p.value=te$p.value)}))[,3],4)
+  
+################# Fi Validación ('Validation') #################################
+
+## Resumen de resultados de validación y de adecuación
+
+resumen<-data.frame(Pruebas=1:18)
+colnames(resumen)<-paste0("mod1B")
+rownames(resumen)<-c("Shapiro-Wilks Normality p-value","Anderson-Darling p-value","Jarque-Bera p-value","Breusch-Pagan p-value","Durbin-Watson p-value",
+         "Ljung-Box (lag 1) p-value","Ljung-Box (lag 2) p-value","Ljung-Box (lag 3) p-value","Ljung-Box (lag4) p-value",
+         "Ljung-Box (lag 12) p-value","Ljung-Box (lag 24) p-value","Ljung-Box (lag 36) p-value","Ljung-Box (lag 48) p-value",
+         "Log Likelihood","AIC","RMSPE", "MAPE","Mean Length")
+        
+  resumen[1,1]=sw[1]
+  resumen[2,1]=ad[1]
+  resumen[3,1]=jb[1]
+  resumen[4,1]=bp[1]
+  resumen[5,1]=dw[1]
+  resumen[6,1]=lj[1]
+  resumen[7,1]=lj[2]
+  resumen[8,1]=lj[3]
+  resumen[9,1]=lj[4]
+  resumen[10,1]=lj[5]
+  resumen[11,1]=lj[6]
+  resumen[12,1]=lj[7]
+  resumen[13,1]=lj[8]
+  resumen[14,1]=model$loglik
+  resumen[15,1]=model$aic
+  resumen[16,1]=NA
+  resumen[17,1]=NA
+  resumen[18,1]=NA
+  return(resumen)
+
+}
+```
+
+## 7.1 Validación modelo 1B
+
+**Ecuación** $ARIMA(1,1,0)(1,1,0)_{12}$: 
+
+\[
+(1 - \phi_1 B)(1 - \Phi_1 B^{12})(1 - B)(1 - B^{12})ln(X_t) = Z_t; Z_t \sim N(0,0.001665)
+\]
+
+con 
+
+\[
+\phi_1 = -0.5581
+\]
+\[
+\Phi_1 = -0.3622
+\]
+
+```{r}
+val1 <- validation(mod1B)
+```
+
+**Observaciones** <br>
+-Normalidad: sí <br>
+-Homocedasticidad: sí <br>
+-Independencia: no, autocorrelación en los lags 2,3,12,24 del test de Ljung-Box <br>
+-Validado: NO
+
+## 7.2 Validación modelo 2B
+
+**Ecuación** $ARIMA(1,1,0)(0,1,1)_{12}$:
+
+\[
+(1 - \phi_1 B)(1 - B)(1 - B^{12})ln(X_t) = (1 + \Theta_1 B^{12})Z_t; Z_t \sim N(0,0.001649)
+\]
+
+con
+
+\[
+\phi_1 = -0.5483
+\]
+\[
+\Theta_1 = -0.4044
+\]
+
+```{r}
+val2 <- validation(mod2B)
+```
+
+**Observaciones** <br>
+-Normalidad: sí <br>
+-Homocedasticidad: sí <br>
+-Independencia: no, autocorrelación en los lags 12,24 del test de Ljung-Box <br>
+-Validado: NO
+
+## 7.3 Validación modelo 3B
+
+**Ecuación** $ARIMA(1,1,0)(0,1,4)_{12}$:
+
+\[
+(1 - \phi_1 B)(1 - B)(1 - B^{12})ln(X_t) = (1 + \Theta_1 B^{12} + \Theta_2 B^{24} + \Theta_3 B^{36} + \Theta_4 B^{48})Z_t; Z_t \sim N(0,0.00129)
+\]
+
+con
+
+\[
+\phi_1 = -0.5383 
+\]
+\[
+\Theta_1 = -0.4614 
+\]
+\[
+\Theta_2 = 0.0424 \sim 0
+\]
+\[
+\Theta_3 = -0.2230 \sim 0 
+\]
+\[
+\Theta_4 = -0.3578
+\]
+
+```{r}
+val3 <- validation(mod3B)
+```
+
+**Observaciones** <br>
+-Normalidad: no, p-valor test Anderson-Darling <br>
+-Homocedasticidad: sí <br>
+-Independencia: no, autocorrelación en los lags 2 del test de Ljung-Box <br>
+-Validado: NO
+
+## 7.4 Validación modelo 4B
+
+**Ecuación** $ARIMA(0,1,1)(1,1,0)_{12}$:
+
+\[
+(1 - \Phi_1 B^{12})(1 - B)(1 - B^{12})ln(X_t) = (1 + \theta_1 B)Z_t; Z_t \sim N(0,0.001585)
+\]
+
+con
+
+\[
+\Phi_1 = -0.4108
+\]
+\[
+\theta_1 = -0.6542
+\]
+
+```{r}
+val4 <- validation(mod4B)
+```
+
+**Observaciones** <br>
+-Normalidad: sí <br>
+-Homocedasticidad: sí <br>
+-Independencia: sí <br>
+-Validado: SI
+
+## 7.5 Validación modelo 5B
+
+**Ecuación** $ARIMA(0,1,1)(0,1,1)_{12}$:
+
+\[
+(1 - B)(1 - B^{12})ln(X_t) = (1 + \theta_1 B)(1 + \Theta_1 B^{12})Z_t; Z_t \sim N(0,0.001583)
+\]
+
+con
+
+\[
+\theta_1 = -0.6442
+\]
+\[
+\Theta_1 = -0.4390
+\]
+
+```{r}
+val5 <- validation(mod5B)
+```
+
+**Observaciones:** <br>
+-Normalidad: sí (a pesar del p-valor test Jarque-Bera) <br>
+-Homocedasticidad: sí <br>
+-Independencia: sí <br>
+-Validado: SI
+
+## 7.6 Validación modelo 6B
+
+**Ecuación** $ARIMA(0,1,1)(0,1,4)_{12}$:
+
+\[
+(1 - B)(1 - B^{12})ln(X_t) = (1 + \theta_1 B)(1 + \Theta_1 B^{12} + \Theta_2 B^{24} + \Theta_3 B^{36}) + \Theta_4 B^{48})Z_t; Z_t \sim N(0,0.001173)
+\]
+
+con
+
+\[
+\theta_1 = -0.6638
+\]
+\[
+\Theta_1 = -0.5171
+\]
+\[
+\Theta_2 = 0.1805 \sim 0
+\]
+\[
+\Theta_3 = -0.3242 \sim 0
+\]
+\[
+\Theta_4 = -0.3392
+\]
+
+```{r}
+val6 <- validation(mod6B)
+```
+
+**Observaciones** <br>
+-Normalidad: sí (a pesar del p-valor test Jarque-Bera) <br>
+-Homocedasticidad: sí <br>
+-Independencia: sí <br>
+-Validado: SI
+
+**Interpretación** <br>
+Validamos los modelos cuya parte regular es MA(1). <br>
+También hemos observado que, en la parte estacional, no hay una diferencia significativa entre considerar un SMA(4) en vez de un SMA(1). Entonces a continuación no seguiremos con los modelos SMA(4); es decir obviaremos el modelo3B y el modelo6B.
+
+---
+
+# Parte 8: Predicciones futuras
+
+## 8.1 Predicciones con modelos deterministas
+
+Usamos el filtro de Wolt-Winters para series de tipo 6 con la ecuación siguiente:
+
+1. **Nivel (level):**
+
+\[
+l_t = \alpha \frac{x_t}{s_{t-m}} + (1 - \alpha)(l_{t-1} + b_{t-1})
+\]
+
+2. **Tendencia (trend):**
+
+\[
+b_t = \beta (l_t - l_{t-1}) + (1 - \beta)b_{t-1}
+\]
+
+3. **Estacionalidad (seasonality):**
+
+\[
+s_t = \gamma \frac{x_t}{l_t} + (1 - \gamma)s_{t-m}
+\]
+
+4. **Predicción (forecast):**
+
+\[
+\hat{y}_{t+h} = (l_t + hb_t) s_{t+h-m(k+1)}
+\]
+
+Donde: <br>
+- \( x_t \): Valor observado en el tiempo \( t \). <br>
+- \( l_t \): Nivel de la serie en el tiempo \( t \). <br>
+- \( b_t \): Tendencia de la serie en el tiempo \( t \). <br>
+- \( s_t \): Componente estacional. <br>
+- \( m=12 \): Periodo estacional. <br>
+- \( h=1,...,24 \): Horizonte de predicción. <br>
+- \( \alpha, \beta, \gamma \): Parámetros de suavizado (entre 0 y 1).
+
+```{r}
+(hw <- HoltWinters(serie, alpha = NULL, beta = NULL, gamma = NULL, seasonal = "multiplicative"))
+predhw = predict(hw,24)
+ts.plot(serie, fitted(hw)[,1], predhw, col = c(1,3,2), lwd = c(1,2), main = "Filtro Holt Winters AAM")
+legend("topleft", legend = c("Serie", "Fitted", "Prediction"), col = c(1,3,2), lty = 1, bty = "y")
+```
+
+## 8.2 Predicciones con modelos ARIMA
+
+```{r}
+serie1=window(data, start = 2009, end = c(2019,12))   #completar la serie de 2009-2019
+lnserie1=log(serie1)                                  #transformada al log    
+serie2=window(serie, start = 2009, end = c(2018, 12)) #serie sin las últimas observaciones: 2009-2018
+lnserie2=log(serie2)                                  #transformada al log
+```
+
+### 8.2.1 Modelo 1B {.tabset}
+
+#### Estabilidad del modelo
+
+```{r}
+(mod1B=arima(lnserie1,order=c(1,1,0),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo mod1B \nT-ratios:",round(mod1B$coef/sqrt(diag(mod1B$var.coef)),2))
+```
+
+```{r}
+(mod1B2=arima(lnserie2,order=c(1,1,0),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo mod1B2 \nT-ratios:",round(mod1B2$coef/sqrt(diag(mod1B2$var.coef)),2))
+```
+
+**Observaciones** <br>
+Vemos que los coeficientes de los modelos son: <br>
+- menores que uno en valor absoluto <br>
+- no varían mucho entre los dos ajustes (con y sin los datos de 2019) <br>
+- son del mismo signo respectivamente entre los dos ajustes <br>
+- son significativos <br>
+Es un modelo estable.
+
+#### Predicción out-of-sample
+
+```{r}
+pred=predict(mod1B2,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)
+
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)
+
+#Intervalos de predicción
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)             #predicciones en la escala original
+
+#Plotear serie original y predicciones entre 2015 y 2019
+ts.plot(serie1,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(2018,12)[1]+c(-3,+2),type="o",main="Modelo ARIMA(1,1,0)(1,1,0)_{12}")
+abline(v=(c(2018,12)[1]-3):(c(2018,12)[1]+2),lty=3,col=4)
+```
+
+```{r}
+(previs=window(cbind(tl,pr,tu,serie1,error=round(serie1-pr,3)),start=c(2018,12)))
+```
+
+```{r}
+obs=window(serie1,start=c(2018,12))
+(mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12))
+(mod.EAM1=sum(abs(obs-pr)/obs)/12)
+(mod.ML1=sum(tu-tl)/12)
+```
+
+#### Predicción a largo plazo
+
+```{r}
+pred=predict(mod1B,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=c(2019,12),freq=12)
+se<-ts(c(0,pred$se),start=c(2019,12),freq=12)
+
+tl1<-ts(exp(pr-1.96*se),start=c(2019,12),freq=12)
+tu1<-ts(exp(pr+1.96*se),start=c(2019,12),freq=12)
+pr1<-ts(exp(pr),start=c(2019,12),freq=12)
+
+ts.plot(serie1,tl1,tu1,pr1,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(c(2018,12)[1]-2,c(2018,12)[1]+3),type="o",main="Model ARIMA(1,1,0)(1,1,0)_12")
+abline(v=(c(2018,12)[1]-2):(c(2018,12)[1]+3),lty=3,col=4)
+```
+
+```{r}
+(previs1=window(cbind(tl1,pr1,tu1),start=c(2019,12)))
+```
+
+### 8.2.2 Modelo 2B {.tabset}
+
+#### Estabilidad del modelo
+
+```{r}
+(mod2B=arima(lnserie1,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo mod2B \nT-ratios:",round(mod2B$coef/sqrt(diag(mod2B$var.coef)),2))
+```
+
+```{r}
+(mod2B2=arima(lnserie2,order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo mod2B2 \nT-ratios:",round(mod2B2$coef/sqrt(diag(mod2B2$var.coef)),2))
+```
+
+**Observaciones** <br>
+Vemos que los coeficientes de los modelos son: <br>
+- menores que uno en valor absoluto <br>
+- no varían mucho entre los dos ajustes (con y sin los datos de 2019) <br>
+- son del mismo signo respectivamente entre los dos ajustes <br>
+- son significativos <br>
+Es un modelo estable.
+
+#### Predicción out-of-sample
+
+```{r}
+pred=predict(mod2B2,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)
+
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)
+
+#Intervalos de predicción
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)             #predicciones en la escala original
+
+#Plotear serie original y predicciones entre 2015 y 2019
+ts.plot(serie1,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(2018,12)[1]+c(-3,+2),type="o",main="Modelo ARIMA(1,1,0)(0,1,1)_{12}")
+abline(v=(c(2018,12)[1]-3):(c(2018,12)[1]+2),lty=3,col=4)
+```
+
+```{r}
+(previs=window(cbind(tl,pr,tu,serie1,error=round(serie1-pr,3)),start=c(2018,12)))
+```
+
+```{r}
+obs=window(serie1,start=c(2018,12))
+(mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12))
+(mod.EAM1=sum(abs(obs-pr)/obs)/12)
+(mod.ML1=sum(tu-tl)/12)
+```
+
+#### Predicción a largo plazo
+
+```{r}
+pred=predict(mod2B,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=c(2019,12),freq=12)
+se<-ts(c(0,pred$se),start=c(2019,12),freq=12)
+
+tl1<-ts(exp(pr-1.96*se),start=c(2019,12),freq=12)
+tu1<-ts(exp(pr+1.96*se),start=c(2019,12),freq=12)
+pr1<-ts(exp(pr),start=c(2019,12),freq=12)
+
+ts.plot(serie1,tl1,tu1,pr1,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(c(2018,12)[1]-2,c(2018,12)[1]+3),type="o",main="Model ARIMA(1,1,0)(0,1,1)_12")
+abline(v=(c(2018,12)[1]-2):(c(2018,12)[1]+3),lty=3,col=4)
+```
+
+```{r}
+(previs1=window(cbind(tl1,pr1,tu1),start=c(2019,12)))
+```
+
+### 8.2.3 Modelo 4B {.tabset}
+
+#### Estabilidad del modelo
+
+```{r}
+(mod4B=arima(lnserie1,order=c(0,1,1),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo mod4B \nT-ratios:",round(mod4B$coef/sqrt(diag(mod4B$var.coef)),2))
+```
+
+```{r}
+(mod4B2=arima(lnserie2,order=c(0,1,1),seasonal=list(order=c(1,1,0),period=12)))
+cat("Modelo mod4B2 \nT-ratios:",round(mod4B2$coef/sqrt(diag(mod4B2$var.coef)),2))
+```
+
+**Observaciones** <br>
+Vemos que los coeficientes de los modelos son: <br>
+- menores que uno en valor absoluto <br>
+- no varían mucho entre los dos ajustes (con y sin los datos de 2019) <br>
+- son del mismo signo respectivamente entre los dos ajustes <br>
+- son significativos <br>
+Es un modelo estable.
+
+#### Predicción out-of-sample
+
+```{r}
+pred=predict(mod4B2,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)
+
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)
+
+#Intervalos de predicción
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)             #predicciones en la escala original
+
+#Plotear serie original y predicciones entre 2015 y 2019
+ts.plot(serie1,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(2018,12)[1]+c(-3,+2),type="o",main="Modelo ARIMA(0,1,1)(1,1,0)_{12}")
+abline(v=(c(2018,12)[1]-3):(c(2018,12)[1]+2),lty=3,col=4)
+```
+
+```{r}
+(previs=window(cbind(tl,pr,tu,serie1,error=round(serie1-pr,3)),start=c(2018,12)))
+```
+
+```{r}
+obs=window(serie1,start=c(2018,12))
+(mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12))
+(mod.EAM1=sum(abs(obs-pr)/obs)/12)
+(mod.ML1=sum(tu-tl)/12)
+```
+
+#### Predicción a largo plazo
+
+```{r}
+pred=predict(mod4B,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=c(2019,12),freq=12)
+se<-ts(c(0,pred$se),start=c(2019,12),freq=12)
+
+tl1<-ts(exp(pr-1.96*se),start=c(2019,12),freq=12)
+tu1<-ts(exp(pr+1.96*se),start=c(2019,12),freq=12)
+pr1<-ts(exp(pr),start=c(2019,12),freq=12)
+
+ts.plot(serie1,tl1,tu1,pr1,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(c(2018,12)[1]-2,c(2018,12)[1]+3),type="o",main="Model ARIMA(0,1,1)(1,1,0)_12")
+abline(v=(c(2018,12)[1]-2):(c(2018,12)[1]+3),lty=3,col=4)
+```
+
+```{r}
+(previs1=window(cbind(tl1,pr1,tu1),start=c(2019,12)))
+```
+
+### 8.2.4 Modelo 5B {.tabset}
+
+#### Estabilidad del modelo
+
+```{r}
+(mod5B=arima(lnserie1,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo mod5B \nT-ratios:",round(mod5B$coef/sqrt(diag(mod5B$var.coef)),2))
+```
+
+```{r}
+(mod5B2=arima(lnserie2,order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12)))
+cat("Modelo mod5B2 \nT-ratios:",round(mod5B2$coef/sqrt(diag(mod5B2$var.coef)),2))
+```
+
+**Observaciones** <br>
+Vemos que los coeficientes de los modelos son: <br>
+- menores que uno en valor absoluto <br>
+- no varían mucho entre los dos ajustes (con y sin los datos de 2019) <br>
+- son del mismo signo respectivamente entre los dos ajustes <br>
+- son significativos <br>
+Es un modelo estable.
+
+#### Predicción out-of-sample
+
+```{r}
+pred=predict(mod5B2,n.ahead=12)
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)
+
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)
+
+#Intervalos de predicción
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)             #predicciones en la escala original
+
+#Plotear serie original y predicciones entre 2015 y 2019
+ts.plot(serie1,tl,tu,pr,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(2018,12)[1]+c(-3,+2),type="o",main="Modelo ARIMA(0,1,1)(0,1,1)_{12}")
+abline(v=(c(2018,12)[1]-3):(c(2018,12)[1]+2),lty=3,col=4)
+```
+
+```{r}
+(previs=window(cbind(tl,pr,tu,serie1,error=round(serie1-pr,3)),start=c(2018,12)))
+```
+
+```{r}
+obs=window(serie1,start=c(2018,12))
+(mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12))
+(mod.EAM1=sum(abs(obs-pr)/obs)/12)
+(mod.ML1=sum(tu-tl)/12)
+```
+
+#### Predicción a largo plazo
+
+```{r}
+pred=predict(mod5B,n.ahead=12)
+pr<-ts(c(tail(lnserie,1),pred$pred),start=c(2019,12),freq=12)
+se<-ts(c(0,pred$se),start=c(2019,12),freq=12)
+
+tl1<-ts(exp(pr-1.96*se),start=c(2019,12),freq=12)
+tu1<-ts(exp(pr+1.96*se),start=c(2019,12),freq=12)
+pr1<-ts(exp(pr),start=c(2019,12),freq=12)
+
+ts.plot(serie1,tl1,tu1,pr1,lty=c(1,2,2,1),col=c(1,4,4,2),xlim=c(c(2018,12)[1]-2,c(2018,12)[1]+3),type="o",main="Model ARIMA(0,1,1)(0,1,1)_12")
+abline(v=(c(2018,12)[1]-2):(c(2018,12)[1]+3),lty=3,col=4)
+```
+
+```{r}
+(previs1=window(cbind(tl1,pr1,tu1),start=c(2019,12)))
+```
+
+---
+
+# Parte 9: Selección del modelo final
+
+## 9.1 Tabla de resumen
+
+En esta tabla intentaremos recapitular todos los resultados significantes desde la validación de los modelos hasta los errores en las predicciones con tal de escoger uno de ellos.
+
+```{r}
+#MODELO 1
+mod1B2=arima(lnserie2, order=c(1,1,0),seasonal=list(order=c(1,1,0),period=12))
+model=mod1B2
+pred=predict(mod1B2,n.ahead=12)                            
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)                  
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)  
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)           
+mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12)   
+mod.EAM1=sum(abs(obs-pr)/obs)/12
+mod.ML1=sum(tu-tl)/12
+
+model=mod1B
+resumen1<-val1
+colnames(resumen1)<-c("mod1B")
+resumen1[16,1]=mod.EQM1
+resumen1[17,1]=mod.EAM1
+resumen1[18,1]=mod.ML1 
+
+
+#MODELO 2
+mod2B2=arima(lnserie2, order=c(1,1,0),seasonal=list(order=c(0,1,1),period=12))
+model=mod2B2
+pred=predict(mod2B2,n.ahead=12)                            
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)                  
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)  
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)           
+mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12) 
+mod.EAM1=sum(abs(obs-pr)/obs)/12
+mod.ML1=sum(tu-tl)/12
+
+model=mod2B
+resumen2<-val2
+colnames(resumen2)<-c("mod2B")
+resumen2[16,1]=mod.EQM1
+resumen2[17,1]=mod.EAM1
+resumen2[18,1]=mod.ML1 
+
+#MODELO 4
+mod4B2=arima(lnserie2, order=c(0,1,1),seasonal=list(order=c(1,1,0),period=12))
+model=mod4B2
+pred=predict(mod4B2,n.ahead=12)                            
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)                  
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)  
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)           
+mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12) 
+mod.EAM1=sum(abs(obs-pr)/obs)/12
+mod.ML1=sum(tu-tl)/12
+
+model=mod4B
+resumen3<-val4
+colnames(resumen3)<-c("mod4B")
+resumen3[16,1]=mod.EQM1
+resumen3[17,1]=mod.EAM1
+resumen3[18,1]=mod.ML1
+
+#MODELO 5
+mod5B2=arima(lnserie2, order=c(0,1,1),seasonal=list(order=c(0,1,1),period=12))
+model=mod5B2
+pred=predict(mod5B2,n.ahead=12)                            
+se<-ts(c(0,pred$se),start=c(2018,12),freq=12)                  
+pr<-ts(c(tail(lnserie2,1),pred$pred),start=c(2018,12),freq=12)  
+tl<-ts(exp(pr-1.96*se),start=c(2018,12),freq=12)
+tu<-ts(exp(pr+1.96*se),start=c(2018,12),freq=12)
+pr<-ts(exp(pr),start=c(2018,12),freq=12)           
+mod.EQM1=sqrt(sum(((obs-pr)/obs)^2)/12)
+mod.EAM1=sum(abs(obs-pr)/obs)/12
+mod.ML1=sum(tu-tl)/12
+
+model=mod5B
+resumen4<-val5
+colnames(resumen4)<-c("mod5B")
+resumen4[16,1]=mod.EQM1
+resumen4[17,1]=mod.EAM1
+resumen4[18,1]=mod.ML1
+
+
+tablef<-cbind.data.frame(resumen1,resumen2,resumen3,resumen4)
+```
+
+```{r}
+library(knitr)
+kable(
+  tablef, 
+  caption = "Resumen de Modelos",
+  digits = 4,  
+  format = "html"
+)
+```
+
+**Observaciones** <br>
+En la parte de los errores de nuestras diferentes predicciones vemos que el modelo 4 posee los valores más pequeños. <br>
+Este dato junto con la parte de validación donde hemos observado que el modelo 4 era también el más adecuado nos lleva a nuestra decisión final. <br>
+El modelo 4 es nuestro modelo escogido para ajustar la serie temporal del número de entrada de Turistas en España de 2009 a 2018 con predicciones hasta 2020.
+
+
+## 9.2 Uso del algoritmo automático
+
+```{r}
+library(forecast)
+auto.arima(lnserie)
+```
+
+**Interpretación** <br>
+Es justamente el modelo que hemos escogido. <br>
+Hemos verificado que nuestro procedimiento y que nuestras conclusiones a los resultados obtenidos han sido correctas. <br>
+Nuestro modelo teórico detrás de esta serie observada es, $ARIMA(0,1,1)(1,1,0)_{12}$:
+
+\[
+(1 - \Phi_1 B^{12})(1 - B)(1 - B^{12})ln(X_t) = (1 + \theta_1 B)Z_t; Z_t \sim N(0,0.001585)
+\]
+
+con
+
+\[
+\Phi_1 = -0.4108
+\]
+\[
+\theta_1 = -0.6542
+\]
+
+---
+
+# Conclusión
+
+El modelo seleccionado para este trabajo es el **ARIMA(0, 1, 1)(1, 1, 0)\_{12}**, basado en las características de la serie temporal del turismo en España. Este modelo incluye una transformación logarítmica que estabiliza la varianza y captura con precisión los patrones de crecimiento y estacionalidad.
+
+El modelo incorpora términos de diferenciación no estacional y estacional ($1 - B$ y $1 - B^{12}$) para eliminar la tendencia y los ciclos anuales. Además, incluye un componente autorregresivo estacional ($\Phi_1 = -0.4108$) para ajustar las dependencias temporales en ciclos de 12 meses, y un promedio móvil no estacional ($\theta_1 = -0.6542$) para corregir las fluctuaciones aleatorias a corto plazo. Esto permite capturar tanto las variaciones estacionales como la tendencia creciente.
+
+El turismo en España muestra una marcada **estacionalidad multiplicativa**, donde las fluctuaciones son proporcionales al nivel general de la serie. A medida que el turismo crece a lo largo de los años, las variaciones estacionales también se amplifican, justificando la elección de un enfoque multiplicativo.
+
+---
+
