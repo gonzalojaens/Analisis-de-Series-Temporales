@@ -1,0 +1,5 @@
+mkdir nombre_de_la_carpeta
+touch nombre_de_la_carpeta/.gitkeep
+git add nombre_de_la_carpeta/.gitkeep
+git commit -m "Añadida una carpeta con .gitkeep"
+git push origin main
